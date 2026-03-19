@@ -20,8 +20,8 @@ import random
 # 配置字典 - 可根据需要修改
 CONFIG = {
     # 抓取配置
-    'TOP_RATED_LIMIT': 1000,  # 高分游戏抓取数量
-    'TRENDING_LIMIT': 500,     # 热门新品抓取数量
+    'TOP_RATED_LIMIT': 50,  # 高分游戏抓取数量
+    'TRENDING_LIMIT': 25,     # 热门新品抓取数量
     'MAX_RETRIES': 3,          # 最大重试次数
     'RETRY_DELAY': (1, 3),     # 重试延迟范围（秒）
     'REQUEST_DELAY': (1, 2),    # 请求间隔范围（秒）
@@ -30,6 +30,9 @@ CONFIG = {
     'STEAMSPY_API': {
         'ALL_GAMES': 'https://steamspy.com/api.php?request=all&page=0',
         'TOP_100_IN_2WEEKS': 'https://steamspy.com/api.php?request=top100in2weeks'
+    },
+    'STEAM_API': {
+        'APP_DETAIL': 'https://store.steampowered.com/api/appdetails?appids={}&l=zh-cn'
     },
     
     # 输出配置
@@ -130,6 +133,37 @@ class SteamCrawler:
         # 添加随机延迟，避免请求过于频繁
         time.sleep(random.uniform(*CONFIG['REQUEST_DELAY']))
     
+    def _get_game_tags(self, appid):
+        """
+        从 Steam 官方 API 获取游戏标签
+        Args:
+            appid: 游戏 ID
+        Returns:
+            游戏标签列表
+        """
+        tags = []
+        try:
+            url = CONFIG['STEAM_API']['APP_DETAIL'].format(appid)
+            response = requests.get(url, headers=self.headers, timeout=10)
+            data = response.json()
+            
+            if str(appid) in data and data[str(appid)]['success']:
+                game_data = data[str(appid)]['data']
+                # 获取标签
+                if 'genres' in game_data:
+                    tags = [genre['description'] for genre in game_data['genres']]
+                # 也可以添加类别信息
+                if 'categories' in game_data:
+                    categories = [cat['description'] for cat in game_data['categories']]
+                    tags.extend(categories)
+            
+            # 随机延迟，避免请求过于频繁
+            time.sleep(random.uniform(0.5, 1.5))
+        except Exception as e:
+            print(f"[!] 获取游戏标签失败 (APP ID: {appid}): {e}")
+        
+        return tags
+    
     def _format_game(self, game):
         """
         格式化游戏数据
@@ -139,10 +173,14 @@ class SteamCrawler:
             格式化后的游戏数据
         """
         appid = game.get('appid')
+        
+        # 从 Steam 官方 API 获取标签
+        tags = self._get_game_tags(appid)
+        
         return {
             'id': appid,
             'name': game.get('name'),
-            'tags': game.get('tags', []),
+            'tags': tags,
             'score': round(game.get('positive', 0) / (game.get('positive', 1) + game.get('negative', 0)) * 100, 2),
             'header_image': f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg",
             'description': f"Developer: {game.get('developer')}, Publisher: {game.get('publisher')}",
